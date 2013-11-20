@@ -70,7 +70,7 @@ vec4 calculate_final_color(int frag_count) {
 	*/
 	uint current = imageLoad(head_pointer_image, ivec2(gl_FragCoord.xy)).x;
 	while(current != 0) {
-		uvec4 item = imageLoad(list_buffer, int(current));
+		uvec4 item = imageLoad(list_buffer, int(current-1));
 		vec4 frag_color = unpackUnorm4x8(item.y);
 		final_color = blend(final_color, frag_color);
 		current = item.x;

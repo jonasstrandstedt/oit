@@ -33,7 +33,7 @@ else()
 endif()
 add_definitions(-std=c++11)
 add_definitions(-DGLEW_STATIC)
-add_definitions(-v)
+#add_definitions(-v)
 
 include_directories(
     ${GL4_ROOT_DIR}/include

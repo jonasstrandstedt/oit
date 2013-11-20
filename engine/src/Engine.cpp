@@ -23,7 +23,7 @@ gl4::Engine::Engine(int argc, char **argv) {
 
 	glm::mat4 Perspective = glm::perspective(45.0f, static_cast<float>(_windowWidth) / static_cast<float>(_windowHeight), 0.1f, 100.0f);
 	glm::mat4 Orthogonal = glm::ortho(0.0f,static_cast<float>(_windowWidth), 0.0f,static_cast<float>(_windowHeight), 0.1f, 100.0f);
-	glm::mat4 PerspectiveView = glm::lookAt(	glm::vec3(0,1,3), // Camera pos
+	glm::mat4 PerspectiveView = glm::lookAt(	glm::vec3(0,0,3), // Camera pos
 												glm::vec3(0,0,0), // and looks at the origin
 												glm::vec3(0,1,0)  // Head is up (set to 0,-1,0 to look upside-down)
 																);

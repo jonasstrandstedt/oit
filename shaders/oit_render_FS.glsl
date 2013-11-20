@@ -13,9 +13,11 @@ layout (early_fragment_tests) in;
 
 layout(location = 0) uniform mat4 Projection;
 layout(location = 1) uniform mat4 ModelTransform;
+layout(location = 2) uniform vec4 base_color;
 
 layout (binding = 0, r32ui) uniform uimage2D head_pointer_image;
 layout (binding = 1, rgba32ui) uniform uimageBuffer list_buffer;
+layout (binding = 2, r32ui) uniform uimage2D atomic_counter_array_buffer_texture;
 
 layout (binding = 0, offset = 0) uniform atomic_uint index_counter;
 layout (location = 0) out vec4 diffuse;
@@ -29,9 +31,12 @@ uniform vec3 light_position = vec3(40.0, 20.0, 100.0);
 void main()
 {
 
-	vec4 frag_color = vec4(1.0,0,0,0.5);
+	vec4 frag_color = base_color;
 	uint index = atomicCounterIncrement(index_counter);
+	imageAtomicAdd(atomic_counter_array_buffer_texture, ivec2(gl_FragCoord.xy), 1);
+
 	uint old_head = imageAtomicExchange(head_pointer_image, ivec2(gl_FragCoord.xy), index);
+
 
 	vec3 L = normalize(light_position - frag_position);
     vec3 V = normalize(-frag_position);
@@ -49,7 +54,7 @@ void main()
 	item.z = floatBitsToUint(gl_FragCoord.z);
 	item.w = 0;
 
-	imageStore(list_buffer, int(index), item);
+	imageStore(list_buffer, int(index-1), item);
 	diffuse = frag_color;
 
 }
