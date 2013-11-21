@@ -85,10 +85,9 @@ bool gl4::Engine::initGL() {
 		LOG("%-12s %s\n", "GLEW:", glewGetString(GLEW_VERSION) );
 		LOG(format, "OpenGL:", OpenGLmajor, OpenGLminor, OpenGLrev );
 		LOG("%-12s %s\n", "GLSL:", glGetString(GL_SHADING_LANGUAGE_VERSION) );
+		LOG(format,"GL4 Engine:", GL4_ENGINE_VERION_MAJOR, GL4_ENGINE_VERION_MINOR, GL4_ENGINE_VERION_REVISION  );
 
-		std::sprintf (buffer, format, "GL4 Engine:", GL4_ENGINE_VERION_MAJOR, GL4_ENGINE_VERION_MINOR, GL4_ENGINE_VERION_REVISION );
-		LOG("%s",buffer );
-		glfwSetWindowTitle( buffer );
+		glfwSetWindowTitle( "GL4 Engine");
 		
 		// make sure the managers are initialized
 		gl4::ShaderManager::getInstance();
@@ -155,6 +154,18 @@ void gl4::Engine::render() {
 		// update time variables
 		double t = glfwGetTime();
 		float dt = static_cast<float>(t - _t0);
+
+		// set title
+		_frames++;
+		double frameDiff = t - _lastFrame;
+		if ( frameDiff >= 1.0 ){ // If last prinf() was more than 1 sec ago
+			// printf and reset timer
+			char buffer[50];
+			sprintf(buffer, "%.1f fps", static_cast<double>(_frames) / frameDiff);
+			glfwSetWindowTitle( buffer);
+			_frames = 0;
+			_lastFrame += 1.0;
+		}
 
 		// Handle all the updates
 		if (_updateFunc != 0)

@@ -19,6 +19,7 @@ gl4::Engine *engine;
 gl4::Model *bunny;
 gl4::Model *armadillo;
 gl4::Model *dragon;
+gl4::Model *box;
 
 // global settings
 glm::vec2 angle;
@@ -31,8 +32,9 @@ void myInitFunc(void);
 void myUpdateFunc(float dt);
 
 // OIT
-#define MAX_FRAMEBUFFER_WIDTH 2048
-#define MAX_FRAMEBUFFER_HEIGHT 2048
+#define MAX_FRAMEBUFFER_WIDTH 800
+#define MAX_FRAMEBUFFER_HEIGHT 600
+#define MAX_FRAMEBUFFER_SAMPLES 15
 GLuint *data;
 size_t total_pixels = MAX_FRAMEBUFFER_WIDTH * MAX_FRAMEBUFFER_HEIGHT;
 GLuint head_pointer_texture;
@@ -45,6 +47,7 @@ GLuint linked_list_texture;
 GLuint sort_shader;
 GLuint dispatch_buffer;
 GLuint loc_base_color;
+unsigned int * get_pixel_buffer;
 
 const GLchar * sort_source [] = {
 R"(#version 430
@@ -106,9 +109,14 @@ int main(int argc, char **argv) {
 	engine->render();
 
 	// cleanup
+	delete bunny;
+	delete armadillo;
+	delete dragon;
+	delete box;
 	delete sphere;
 	delete obj;
 	delete engine;
+	delete[] get_pixel_buffer;
 
 	// return success
 	return 0;
@@ -127,6 +135,7 @@ void myInitFunc(void)
 {
 	// init gl states
 	glDisable (GL_DEPTH_TEST);
+	glfwSwapInterval(0);
 
 	angle[0] = 0.0f;
 	angle[1] = 0.0f;
@@ -146,12 +155,14 @@ void myInitFunc(void)
 	// init bunny
 	bunny = new gl4::Model("../data/obj/bunny.obj", "../data/obj/bunny.png",glm::vec3(0.0,0.0,0.0),0.05,glm::vec3(0.0,0.0,0.0));
 	bunny->init();
-	/*
+	
 	armadillo = new gl4::Model("../data/obj/armadillo.obj", "../data/obj/armadillo.png",glm::vec3(0.0,0.0,0.0),0.05,glm::vec3(0.0,0.0,0.0));
 	armadillo->init();
 	dragon = new gl4::Model("../data/obj/dragon.obj", "../data/obj/dragon.png",glm::vec3(0.0,0.0,0.0),0.05,glm::vec3(0.0,0.0,0.0));
 	dragon->init();
-*/
+	box = new gl4::Model("../data/obj/box.obj", "../data/obj/box.png",glm::vec3(0.0,0.0,0.0),0.05,glm::vec3(0.0,0.0,0.0));
+	box->init();
+
 	// load textures
 	gl4::TextureManager::getInstance()->loadTexture("earth_diffuse", "../data/earth_nasa_lowres.tga");
 
@@ -196,7 +207,7 @@ void myInitFunc(void)
 
 	glGenBuffers(1, &fragment_storage_buffer);
 	glBindBuffer(GL_TEXTURE_BUFFER, fragment_storage_buffer);
-	glBufferData(GL_TEXTURE_BUFFER, 4*total_pixels*sizeof(GLfloat)*4, NULL, GL_DYNAMIC_COPY);
+	glBufferData(GL_TEXTURE_BUFFER, MAX_FRAMEBUFFER_SAMPLES*total_pixels*sizeof(GLfloat)*4, NULL, GL_DYNAMIC_COPY);
 
     glGenTextures(1, &linked_list_texture);
     glBindTexture(GL_TEXTURE_BUFFER, linked_list_texture);
@@ -241,6 +252,8 @@ void myInitFunc(void)
 	glBufferData(GL_DISPATCH_INDIRECT_BUFFER, sizeof(dispatch_params), &dispatch_params, GL_STATIC_DRAW);
 	glUseProgram(0);
 
+	get_pixel_buffer = new unsigned int[total_pixels];
+
 
     //printf("source: %s\n", sort_source[0]);
     printf("loc_base_color: %i\n", loc_base_color);
@@ -251,18 +264,6 @@ void myInitFunc(void)
 
 void myRenderFunc(void) 
 {
-	
-	/*
-	gl4::ShaderManager::getInstance()->bindShader("passthrough");
-	glm::mat4 bunny_transform = glm::mat4(1.0);
-	bunny_transform = glm::scale(bunny_transform,glm::vec3(s,s,s));
-	bunny_transform = glm::rotate(bunny_transform,angle[1], glm::vec3(0.0f, 1.0f, 0.0f));
-	bunny_transform = glm::rotate(bunny_transform,angle[0], glm::vec3(1.0f, 0.0f, 0.0f));
-	engine->usePerspectiveProjection(bunny_transform);
-	bunny->render();
-
-	gl4::ShaderManager::getInstance()->unbindShader();
-*/
 
 	// clear head pointers
 	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, head_pointer_initializer);
@@ -306,24 +307,22 @@ void myRenderFunc(void)
 	obj->render();
 	gl4::ShaderManager::getInstance()->unbindShader();
 
-	unsigned int * bufferval = new unsigned int[total_pixels];
 	glBindTexture(GL_TEXTURE_2D, atomic_counter_array_buffer_texture);
-	glGetTexImage(GL_TEXTURE_2D,0,GL_RED_INTEGER,GL_UNSIGNED_INT,bufferval);
+	glGetTexImage(GL_TEXTURE_2D,0,GL_RED_INTEGER,GL_UNSIGNED_INT,get_pixel_buffer);
 
 	//glGetBufferSubData(GL_TEXTURE_BUFFER, 0, total_pixels*sizeof(val), &val);
 
 	for (unsigned int i = 1; i < total_pixels; ++i)
 	{
 		//
-		bufferval[i] += bufferval[i-1];
+		get_pixel_buffer[i] += get_pixel_buffer[i-1];
 		//printf("bufferval[%i] = %i\n", i, bufferval[i]);
 	}
 
-	//glBindTexture(GL_TEXTURE_2D, head_pointer_texture);
-	//glTexImage2D(GL_TEXTURE_2D, 0, GL_R32UI, MAX_FRAMEBUFFER_WIDTH, MAX_FRAMEBUFFER_HEIGHT, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, val);
+	glBindTexture(GL_TEXTURE_2D, atomic_counter_array_buffer_texture);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_R32UI, MAX_FRAMEBUFFER_WIDTH, MAX_FRAMEBUFFER_HEIGHT, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, get_pixel_buffer);
 
 	//printf("bufferval: %i\n", bufferval[total_pixels-1]);
-	delete[] bufferval;
 
 	/*
 	unsigned int val = 0;
@@ -333,16 +332,40 @@ void myRenderFunc(void)
 }
 
 void render_scene() {
-	glm::vec4 red(1.0,0.0,0.0,0.5);
-	glm::vec4 blue(0.0,0.0,1.0,0.5);
-	glm::vec4 green(0.0,1.0,0.0,0.5);
+	glm::vec4 red(1.0,0.0,0.0,0.2);
+	glm::vec4 blue(0.0,0.0,1.0,0.2);
+	glm::vec4 green(0.0,1.0,0.0,0.2);
 
 	float bunny_scale = 9.0;
+	glm::vec4 bunny_color(1.0,1.0,0.0,0.2);
 	glm::mat4 bunny_transform = glm::mat4(1.0);
 	bunny_transform = glm::translate(bunny_transform, glm::vec3(0.0f, -1.3, -angle[0]*0.05));
 	bunny_transform = glm::rotate(bunny_transform,angle[1], glm::vec3(0.0f, 1.0f, 0.0f));
 	bunny_transform = glm::rotate(bunny_transform,0.0f, glm::vec3(1.0f, 0.0f, 0.0f));
 	bunny_transform = glm::scale(bunny_transform,glm::vec3(bunny_scale,bunny_scale,bunny_scale));
+
+	float dragon_scale = 9.0;
+	glm::vec4 dragon_color(0.0,1.0,1.0,0.2);
+	glm::mat4 dragon_transform = glm::mat4(1.0);
+	dragon_transform = glm::translate(dragon_transform, glm::vec3(-1.0f, -1.3, 0.0));
+	dragon_transform = glm::rotate(dragon_transform,angle[1], glm::vec3(0.0f, 1.0f, 0.0f));
+	dragon_transform = glm::rotate(dragon_transform,0.0f, glm::vec3(1.0f, 0.0f, 0.0f));
+	dragon_transform = glm::scale(dragon_transform,glm::vec3(dragon_scale,dragon_scale,dragon_scale));
+
+	float armadillo_scale = 0.01;
+	glm::vec4 armadillo_color(1.0,1.0,1.0,0.9);
+	glm::mat4 armadillo_transform = glm::mat4(1.0);
+	armadillo_transform = glm::translate(armadillo_transform, glm::vec3(3.7f, -2.3, -6.7));
+	armadillo_transform = glm::rotate(armadillo_transform,130.0f, glm::vec3(0.0f, 1.0f, 0.0f));
+	armadillo_transform = glm::rotate(armadillo_transform,0.0f, glm::vec3(1.0f, 0.0f, 0.0f));
+	armadillo_transform = glm::scale(armadillo_transform,glm::vec3(armadillo_scale,armadillo_scale,armadillo_scale));
+
+	float box_scale = 0.01;
+	glm::mat4 box_transform = glm::mat4(1.0);
+	box_transform = glm::translate(box_transform, glm::vec3(2.0f, -1.3, -5.0));
+	box_transform = glm::rotate(box_transform,40.0f, glm::vec3(0.0f, 1.0f, 0.0f));
+	box_transform = glm::rotate(box_transform,0.0f, glm::vec3(1.0f, 0.0f, 0.0f));
+	box_transform = glm::scale(box_transform,glm::vec3(box_scale,box_scale,box_scale));
 
 	float wall_scale = 2.0;
 	glm::mat4 wall_transform = glm::mat4(1.0);
@@ -353,15 +376,31 @@ void render_scene() {
 	wall_transform = glm::scale(wall_transform,glm::vec3(wall_scale,wall_scale,wall_scale));
 
 
-    // BUNNY
-	engine->usePerspectiveProjection(wall_transform);
-    glUniform4fv(loc_base_color, 1, &green[0]);
-	wall->render();
+    // WALL
+	//engine->usePerspectiveProjection(wall_transform);
+    //glUniform4fv(loc_base_color, 1, &green[0]);
+	//wall->render();
 
-	// WALL
+	// BUNNY
 	engine->usePerspectiveProjection(bunny_transform);
-    glUniform4fv(loc_base_color, 1, &red[0]);
+    glUniform4fv(loc_base_color, 1, &bunny_color[0]);
 	bunny->render();
+
+	// dragon
+	engine->usePerspectiveProjection(dragon_transform);
+    glUniform4fv(loc_base_color, 1, &dragon_color[0]);
+	dragon->render();
+
+	// armadillo
+	engine->usePerspectiveProjection(armadillo_transform);
+    glUniform4fv(loc_base_color, 1, &armadillo_color[0]);
+	armadillo->render();
+
+
+	// BOX
+	engine->usePerspectiveProjection(box_transform);
+    glUniform4fv(loc_base_color, 1, &red[0]);
+	box->render();
 }
 
 

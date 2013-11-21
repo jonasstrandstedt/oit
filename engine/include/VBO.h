@@ -34,7 +34,7 @@ namespace gl4
 	public:
 		//initializers
 		VBO();
-		~VBO();
+		virtual ~VBO();
 
 		// init VBO
 		virtual void init();

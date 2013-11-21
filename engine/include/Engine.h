@@ -86,6 +86,8 @@ namespace gl4
 
 			//variables setting the speed
 			double _t0;
+			unsigned int _frames;
+			double _lastFrame;
 
 			// variables
 			glm::mat4 _perspectiveProjectionMatrix;
