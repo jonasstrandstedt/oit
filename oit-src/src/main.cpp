@@ -348,7 +348,7 @@ void render_scene() {
 	glm::vec4 dragon_color(0.0,1.0,1.0,0.2);
 	glm::mat4 dragon_transform = glm::mat4(1.0);
 	dragon_transform = glm::translate(dragon_transform, glm::vec3(-1.0f, -1.3, 0.0));
-	dragon_transform = glm::rotate(dragon_transform,angle[1], glm::vec3(0.0f, 1.0f, 0.0f));
+	dragon_transform = glm::rotate(dragon_transform,135.0f, glm::vec3(0.0f, 1.0f, 0.0f));
 	dragon_transform = glm::rotate(dragon_transform,0.0f, glm::vec3(1.0f, 0.0f, 0.0f));
 	dragon_transform = glm::scale(dragon_transform,glm::vec3(dragon_scale,dragon_scale,dragon_scale));
 
