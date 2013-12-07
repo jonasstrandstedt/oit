@@ -201,3 +201,14 @@ bool gl4::Engine::isKeyPressed(int key)
 void gl4::Engine::_stopRender() {
 	_doRender = false;
 }
+
+bool gl4::Engine::glCheckError() {
+	GLuint errorID = glGetError();
+	bool isError = errorID != GL_NO_ERROR;
+	if(isError)
+	{
+		ERRLOG("OpenGL error[%i]: %s\n", errorID, gluErrorString(errorID));
+		//ERRLOG("Attempting to proceed anyway. Expect rendering errors or a crash.\n");
+	}
+	return isError;
+}

@@ -11,6 +11,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 layout (binding = 0, r32ui) uniform uimage2D head_pointer_image;
 layout (binding = 1, rgba32ui) uniform uimageBuffer list_buffer;
+layout (binding = 2, r32ui) uniform uimage2D atomic_counter_array_buffer_texture;
 
 #define MAX_FRAGMENTS 256
 
@@ -58,22 +59,20 @@ vec4 blend(vec4 current_color, vec4 new_color) {
 	return mix(current_color, new_color, new_color.a);
 }
 
-vec4 calculate_final_color(int frag_count) {
+vec4 calculate_final_color() {
 	vec4 final_color = vec4(0);
 
-	/*
-	int i;
-	for(i = 0; i < frag_count; i++) {
-		vec4 frag_color = unpackUnorm4x8(fragments[i].y);
-		final_color = blend(final_color, frag_color);
-	}
-	*/
-	uint current = imageLoad(head_pointer_image, ivec2(gl_FragCoord.xy)).x;
-	while(current != 0) {
-		uvec4 item = imageLoad(list_buffer, int(current-1));
+	uint offset = imageLoad(head_pointer_image, ivec2(gl_FragCoord.xy));
+	uint frag_count = imageLoad(atomic_counter_array_buffer_texture, ivec2(gl_FragCoord.xy)).x;
+
+	uint i = 0;
+	while(i < frag_count) {
+		uvec4 item = imageLoad(list_buffer, int(offset+i));
 		vec4 frag_color = unpackUnorm4x8(item.y);
 		final_color = blend(final_color, frag_color);
-		current = item.x;
+		//final_color = vec4(i /10.0f , 0 ,0, 1);
+		//final_color = vec4(offset /500794.0f , 0 ,0, 1);
+		i++;
 	}
 
 	return final_color;
@@ -87,5 +86,7 @@ void main()
 
 	//sort_fragments_list(frag_count);
 
-	diffuse = calculate_final_color(frag_count);
+	diffuse = calculate_final_color();
+
+	//diffuse = vec4(0, imageLoad(atomic_counter_array_buffer_texture, ivec2(gl_FragCoord.xy)).x / 6.0f, 0 ,1);
 }

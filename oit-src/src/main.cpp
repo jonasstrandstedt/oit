@@ -23,6 +23,7 @@ gl4::Model *box;
 
 // global settings
 glm::vec2 angle;
+glm::vec3 bunny_position;
 bool wireframe = false;
 
 // callback functions
@@ -34,7 +35,7 @@ void myUpdateFunc(float dt);
 // OIT
 #define MAX_FRAMEBUFFER_WIDTH 800
 #define MAX_FRAMEBUFFER_HEIGHT 600
-#define MAX_FRAMEBUFFER_SAMPLES 15
+#define MAX_FRAMEBUFFER_SAMPLES 100
 GLuint *data;
 size_t total_pixels = MAX_FRAMEBUFFER_WIDTH * MAX_FRAMEBUFFER_HEIGHT;
 GLuint head_pointer_texture;
@@ -42,6 +43,8 @@ GLuint head_pointer_initializer;
 GLuint atomic_counter_buffer;
 GLuint atomic_counter_array_buffer_texture;
 GLuint atomic_counter_array_buffer;
+GLuint accumulated_counter_array_buffer_texture;
+GLuint accumulated_counter_array_buffer;
 GLuint fragment_storage_buffer;
 GLuint linked_list_texture;
 GLuint sort_shader;
@@ -56,36 +59,90 @@ layout(local_size_x = 16, local_size_y = 16) in;
 
 layout (binding = 0, r32ui) uniform uimage2D head_pointer_image;
 layout (binding = 1, rgba32ui) uniform uimageBuffer list_buffer;
+layout (binding = 2, r32ui) uniform uimage2D atomic_counter_array_buffer_texture;
 
 void main() {
+
+	uint offset = imageLoad(head_pointer_image, ivec2(gl_GlobalInvocationID.xy));
+	uint frag_count = imageLoad(atomic_counter_array_buffer_texture, ivec2(gl_GlobalInvocationID.xy)).x;
+	int frag_counti = int(frag_count);
+
+	uvec4 item_i;
+	uvec4 item_j;
+
+	float depth_i;
+	float depth_j;
+
 	
-	uint current = imageLoad(head_pointer_image, ivec2(gl_GlobalInvocationID.xy)).x;
+/*
+	// SELECTION SORT
+	uvec4 item_min, item_next;
+	int iMin;
+	float depth_min;
+	item_next = imageLoad(list_buffer, int(offset));
+	depth_min = uintBitsToFloat(item_next.z);
 
-	while(current != 0) {
-		uvec4 item_i = imageLoad(list_buffer, int(current-1));
+	for(int i = 0; i < frag_counti-1; i++) {
+		iMin = i;
+		item_i = item_next;
+		item_min = item_i;
+		depth_min = uintBitsToFloat(item_min.z);
 
-		uint next = item_i.x;
-		while(next != 0) {
-			uvec4 item_j = imageLoad(list_buffer, int(next-1));
+		for(int j = i+1; j < frag_counti; j++) {
+			item_j = imageLoad(list_buffer, int(offset + j));
+			depth_j = uintBitsToFloat(item_j.z);
 
-			float depth_i = uintBitsToFloat(item_i.z);
-			float depth_j = uintBitsToFloat(item_j.z);
-
-			if(depth_i < depth_j) {
-				uvec3 tmp = item_i.yzw;
-				item_i.yzw = item_j.yzw;
-				item_j.yzw = tmp;
-				imageStore(list_buffer, int(current-1), item_i);
-				imageStore(list_buffer, int(next-1), item_j);
+			if(i+1 == j) {
+				item_next = item_j;
 			}
 
-			next = item_j.x;
+			if(depth_min < depth_j) {
+				depth_min = depth_j;
+				item_min = item_j;
+				iMin = j;
+			}
 		}
-		current = item_i.x;
+
+		// something was smaller, swap
+		if (iMin > i)
+		{
+			imageStore(list_buffer, int(offset + i), item_min);
+			imageStore(list_buffer, int(offset + iMin), item_i);
+		}
+		
 	}
+*/
+
+
+	// BUBBLE SORT
+	uvec4 tmp;
+	for(int i = 0; i < frag_counti-1; i++) {
+		item_i = imageLoad(list_buffer, int(offset + i));
+		depth_i = uintBitsToFloat(item_i.z);
+
+		for(int j = i+1; j < frag_counti; j++) {
+			item_j = imageLoad(list_buffer, int(offset + j));
+			depth_j = uintBitsToFloat(item_j.z);
+
+			if(depth_i < depth_j) {
+				imageStore(list_buffer, int(offset + i), item_j);
+				imageStore(list_buffer, int(offset + j), item_i);
+
+				tmp = item_i;
+				item_i = item_j;
+				item_j = tmp;
+
+			}
+		}
+		
+	}
+
+
+
 };
 
 )"};
+
 
 void render_scene();
 
@@ -137,8 +194,6 @@ void myInitFunc(void)
 	glDisable (GL_DEPTH_TEST);
 	glfwSwapInterval(0);
 
-	angle[0] = 0.0f;
-	angle[1] = 0.0f;
 
 	// init plane
 	obj = new gl4::VBO();
@@ -164,17 +219,18 @@ void myInitFunc(void)
 	box->init();
 
 	// load textures
-	gl4::TextureManager::getInstance()->loadTexture("earth_diffuse", "../data/earth_nasa_lowres.tga");
+	//gl4::TextureManager::getInstance()->loadTexture("earth_diffuse", "../data/earth_nasa_lowres.tga");
 
 	gl4::Shader *passthrough = new gl4::Shader("../shaders/passthrough_VS.glsl", "../shaders/passthrough_FS.glsl");
 	gl4::Shader *oit_render = new gl4::Shader("../shaders/oit_render_VS.glsl", "../shaders/oit_render_FS.glsl");
 	gl4::Shader *oit_sortdraw = new gl4::Shader("../shaders/oit_sortdraw_VS.glsl", "../shaders/oit_sortdraw_FS.glsl");
+	gl4::Shader *oit_counter= new gl4::Shader("../shaders/oit_counter_VS.glsl", "../shaders/oit_counter_FS.glsl");
 	gl4::ShaderManager::getInstance()->addShaderProgram("passthrough", passthrough);
 	gl4::ShaderManager::getInstance()->addShaderProgram("oit_render", oit_render);
 	gl4::ShaderManager::getInstance()->addShaderProgram("oit_sortdraw", oit_sortdraw);
+	gl4::ShaderManager::getInstance()->addShaderProgram("oit_counter", oit_counter);
 
 	loc_base_color = glGetUniformLocation( oit_render->getShaderProgram(), "base_color");
-
 
 	// OIT
 	glGenTextures(1, &head_pointer_texture);
@@ -188,9 +244,6 @@ void myInitFunc(void)
 	data = (GLuint*)glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
 	memset(data, 0x00, total_pixels * sizeof(GLuint));
 	glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
-
-
-	
 
 	glGenBuffers(1, &atomic_counter_array_buffer);
 	glBindBuffer(GL_TEXTURE_BUFFER, atomic_counter_array_buffer);
@@ -259,76 +312,82 @@ void myInitFunc(void)
     printf("loc_base_color: %i\n", loc_base_color);
 
 
+	engine->glCheckError();
+    printf("Init done!\n");
 
 }
 
 void myRenderFunc(void) 
 {
 
-	// clear head pointers
+	// bind buffer initializer
 	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, head_pointer_initializer);
+
+	// clear head_pointer
 	glBindTexture(GL_TEXTURE_2D, head_pointer_texture);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_R32UI, MAX_FRAMEBUFFER_WIDTH, MAX_FRAMEBUFFER_HEIGHT, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
 
+	// clear atomic_counter_array_buffer
 	glBindTexture(GL_TEXTURE_2D, atomic_counter_array_buffer_texture);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_R32UI, MAX_FRAMEBUFFER_WIDTH, MAX_FRAMEBUFFER_HEIGHT, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
-
-	//glBindImageTexture(0, head_pointer_texture, 0,GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
-	
-	glBindBufferBase(GL_ATOMIC_COUNTER_BUFFER, 0, atomic_counter_buffer);
-	const GLuint zero = 1;
-	glBufferSubData(GL_ATOMIC_COUNTER_BUFFER, 0, sizeof(zero), &zero);
+	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 
 	// Bind head-pointer image for read-write
     glBindImageTexture(0, head_pointer_texture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
-
-    // Bind linked-list buffer for write
     glBindImageTexture(1, linked_list_texture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32UI);
     glBindImageTexture(2, atomic_counter_array_buffer_texture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
 
 
-	
+	// count fragments
+	gl4::ShaderManager::getInstance()->bindShader("oit_counter");
+	render_scene();
+	gl4::ShaderManager::getInstance()->unbindShader();
 
+	// fetch and accumulate buffer offset
+	glBindTexture(GL_TEXTURE_2D, atomic_counter_array_buffer_texture);
+	glGetTexImage(GL_TEXTURE_2D,0,GL_RED_INTEGER,GL_UNSIGNED_INT,get_pixel_buffer);
+	for (unsigned int i = 1; i < total_pixels; ++i) {
+		get_pixel_buffer[i] += get_pixel_buffer[i-1];
+	}
+	// for (unsigned int i = total_pixels-1; i > 0; --i) {
+	// 	get_pixel_buffer[i] = get_pixel_buffer[i-1];
+	// }
+
+	//printf("hmm: %i\n", get_pixel_buffer[total_pixels-1]);
+
+	// set the offset buffer 
+	glBindTexture(GL_TEXTURE_2D, head_pointer_texture);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_R32UI, MAX_FRAMEBUFFER_WIDTH, MAX_FRAMEBUFFER_HEIGHT, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, get_pixel_buffer);
+
+	// clear atomic_counter_buffer
+	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, head_pointer_initializer);
+	glBindTexture(GL_TEXTURE_2D, atomic_counter_array_buffer_texture);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_R32UI, MAX_FRAMEBUFFER_WIDTH, MAX_FRAMEBUFFER_HEIGHT, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, NULL);
+	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+
+
+	// render the scene
 	gl4::ShaderManager::getInstance()->bindShader("oit_render");
 	render_scene();
 	gl4::ShaderManager::getInstance()->unbindShader();
 
+	
+	// prevent sorting if S is pressed
 	if(!engine->isKeyPressed('S')) {
 		glUseProgram(sort_shader);
 		glDispatchComputeIndirect(0);
 		glUseProgram(0);
 	}
 	
-
-
-
+	
+	
+	// do the actual draw
 	gl4::ShaderManager::getInstance()->bindShader("oit_sortdraw");
 	engine->useOrthogonalProjection();
 	obj->render();
 	gl4::ShaderManager::getInstance()->unbindShader();
 
-	glBindTexture(GL_TEXTURE_2D, atomic_counter_array_buffer_texture);
-	glGetTexImage(GL_TEXTURE_2D,0,GL_RED_INTEGER,GL_UNSIGNED_INT,get_pixel_buffer);
-
-	//glGetBufferSubData(GL_TEXTURE_BUFFER, 0, total_pixels*sizeof(val), &val);
-
-	for (unsigned int i = 1; i < total_pixels; ++i)
-	{
-		//
-		get_pixel_buffer[i] += get_pixel_buffer[i-1];
-		//printf("bufferval[%i] = %i\n", i, bufferval[i]);
-	}
-
-	glBindTexture(GL_TEXTURE_2D, atomic_counter_array_buffer_texture);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_R32UI, MAX_FRAMEBUFFER_WIDTH, MAX_FRAMEBUFFER_HEIGHT, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, get_pixel_buffer);
-
-	//printf("bufferval: %i\n", bufferval[total_pixels-1]);
-
-	/*
-	unsigned int val = 0;
-	glGetBufferSubData(GL_ATOMIC_COUNTER_BUFFER, 0, sizeof(val), &val);
-	printf("atomic_counter_buffer: %i\n", val);
-	*/
+	engine->glCheckError();
 }
 
 void render_scene() {
@@ -339,8 +398,8 @@ void render_scene() {
 	float bunny_scale = 9.0;
 	glm::vec4 bunny_color(1.0,1.0,0.0,0.2);
 	glm::mat4 bunny_transform = glm::mat4(1.0);
-	bunny_transform = glm::translate(bunny_transform, glm::vec3(0.0f, -1.3, -angle[0]*0.05));
-	bunny_transform = glm::rotate(bunny_transform,angle[1], glm::vec3(0.0f, 1.0f, 0.0f));
+	bunny_transform = glm::translate(bunny_transform, glm::vec3( bunny_position[1]*0.05, -1.3, -bunny_position[0]*0.05));
+	bunny_transform = glm::rotate(bunny_transform,bunny_position[2], glm::vec3(0.0f, 1.0f, 0.0f));
 	bunny_transform = glm::rotate(bunny_transform,0.0f, glm::vec3(1.0f, 0.0f, 0.0f));
 	bunny_transform = glm::scale(bunny_transform,glm::vec3(bunny_scale,bunny_scale,bunny_scale));
 
@@ -352,8 +411,8 @@ void render_scene() {
 	dragon_transform = glm::rotate(dragon_transform,0.0f, glm::vec3(1.0f, 0.0f, 0.0f));
 	dragon_transform = glm::scale(dragon_transform,glm::vec3(dragon_scale,dragon_scale,dragon_scale));
 
-	float armadillo_scale = 0.01;
-	glm::vec4 armadillo_color(1.0,1.0,1.0,0.9);
+	float armadillo_scale = 0.01; //armadillo_scale = 9.0;
+	glm::vec4 armadillo_color(1.0,1.0,1.0,1.0);
 	glm::mat4 armadillo_transform = glm::mat4(1.0);
 	armadillo_transform = glm::translate(armadillo_transform, glm::vec3(3.7f, -2.3, -6.7));
 	armadillo_transform = glm::rotate(armadillo_transform,130.0f, glm::vec3(0.0f, 1.0f, 0.0f));
@@ -395,6 +454,7 @@ void render_scene() {
 	engine->usePerspectiveProjection(armadillo_transform);
     glUniform4fv(loc_base_color, 1, &armadillo_color[0]);
 	armadillo->render();
+	//bunny->render();
 
 
 	// BOX
@@ -407,6 +467,7 @@ void render_scene() {
 void myUpdateFunc(float dt)
 {
 	float speed = 50.0f;
+	/*
 	if(engine->isKeyPressed(GLFW_KEY_RIGHT)) {
 		angle[1] += dt*speed;
 	}
@@ -420,4 +481,25 @@ void myUpdateFunc(float dt)
 	if(engine->isKeyPressed(GLFW_KEY_DOWN)) {
 		angle[0] -= dt*speed;
 	}
+*/
+
+	if(engine->isKeyPressed('M')) {
+		bunny_position[2] += dt*speed;
+	}
+	if(engine->isKeyPressed('N')) {
+		bunny_position[2] -= dt*speed;
+	}
+	if(engine->isKeyPressed(GLFW_KEY_RIGHT)) {
+		bunny_position[1] += dt*speed;
+	}
+	if(engine->isKeyPressed(GLFW_KEY_LEFT)) {
+		bunny_position[1] -= dt*speed;
+	}
+	if(engine->isKeyPressed(GLFW_KEY_UP)) {
+		bunny_position[0] += dt*speed;
+		//printf("angle: %f\n", angle[0]);
+	}
+	if(engine->isKeyPressed(GLFW_KEY_DOWN)) {
+		bunny_position[0] -= dt*speed;
+	}	
 }

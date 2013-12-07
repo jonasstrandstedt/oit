@@ -76,6 +76,8 @@ namespace gl4
 			// input handling
 			bool isKeyPressed(int key);
 
+			bool glCheckError();
+
 
 		private:
 			// user defined functions

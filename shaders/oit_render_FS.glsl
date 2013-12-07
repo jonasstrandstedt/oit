@@ -19,7 +19,6 @@ layout (binding = 0, r32ui) uniform uimage2D head_pointer_image;
 layout (binding = 1, rgba32ui) uniform uimageBuffer list_buffer;
 layout (binding = 2, r32ui) uniform uimage2D atomic_counter_array_buffer_texture;
 
-layout (binding = 0, offset = 0) uniform atomic_uint index_counter;
 layout (location = 0) out vec4 diffuse;
 
 layout (location = 0) in vec2 st;
@@ -28,15 +27,15 @@ layout (location = 2) in vec3 frag_normal;
 
 uniform vec3 light_position = vec3(40.0, 20.0, 100.0);
 
+#define FILTER_SIZE 0
+float weight[FILTER_SIZE*2 +1][FILTER_SIZE*2 +1];
+
 void main()
 {
 
 	vec4 frag_color = base_color;
-	uint index = atomicCounterIncrement(index_counter);
-	imageAtomicAdd(atomic_counter_array_buffer_texture, ivec2(gl_FragCoord.xy), 1);
-
-	uint old_head = imageAtomicExchange(head_pointer_image, ivec2(gl_FragCoord.xy), index);
-
+	uint index;
+	uint offset;
 
 	vec3 L = normalize(light_position - frag_position);
     vec3 V = normalize(-frag_position);
@@ -49,12 +48,46 @@ void main()
     frag_color = vec4(frag_color.rgb * abs(NdotL), frag_color.a);
 
 	uvec4 item;
-	item.x = old_head;
+	item.x = 0;
 	item.y = packUnorm4x8(frag_color);
 	item.z = floatBitsToUint(gl_FragCoord.z);
 	item.w = 0;
 
-	imageStore(list_buffer, int(index-1), item);
 	diffuse = frag_color;
+
+	float sigma = 1.0;
+/*
+	if(gl_FragCoord.x > FILTER_SIZE && gl_FragCoord.x < 800-FILTER_SIZE && gl_FragCoord.y > FILTER_SIZE && gl_FragCoord.y < 600-FILTER_SIZE) {
+		float ksum =  0.0;
+		for(int dx = -FILTER_SIZE; dx <=FILTER_SIZE; ++dx ) {
+			for(int dy = -FILTER_SIZE; dy <=FILTER_SIZE; ++dy ) {
+				weight[dy + FILTER_SIZE][dx + FILTER_SIZE] = exp(-(dx*dx+dy*dy)/(2.0*sigma*sigma));
+				ksum += weight[dy + FILTER_SIZE][dx + FILTER_SIZE];
+			}
+		}
+		for(int dx = -FILTER_SIZE; dx <=FILTER_SIZE; ++dx ) {
+			for(int dy = -FILTER_SIZE; dy <=FILTER_SIZE; ++dy ) {
+				//weight[dy + FILTER_SIZE][dx + FILTER_SIZE] /= ksum;
+			}
+		}
+		for(int dx = -FILTER_SIZE; dx <=FILTER_SIZE; ++dx ) {
+			for(int dy = -FILTER_SIZE; dy <=FILTER_SIZE; ++dy ) {
+				vec2 fragcoorddiff = vec2(dx,dy);	
+				index = imageAtomicAdd(atomic_counter_array_buffer_texture, ivec2(gl_FragCoord.xy+fragcoorddiff), 1);
+				offset = imageLoad(head_pointer_image, ivec2(gl_FragCoord.xy+fragcoorddiff));
+
+				//item.y = packUnorm4x8(frag_color*weight[dy + FILTER_SIZE][dx + FILTER_SIZE]);
+				imageStore(list_buffer, int(index+offset), item);
+			}
+		}
+	} else {
+		index = imageAtomicAdd(atomic_counter_array_buffer_texture, ivec2(gl_FragCoord.xy), 1);
+		offset = imageLoad(head_pointer_image, ivec2(gl_FragCoord.xy));
+		imageStore(list_buffer, int(index+offset), item);
+	}
+	*/
+	index = imageAtomicAdd(atomic_counter_array_buffer_texture, ivec2(gl_FragCoord.xy), 1);
+	offset = imageLoad(head_pointer_image, ivec2(gl_FragCoord.xy));
+	imageStore(list_buffer, int(index+offset), item);
 
 }
