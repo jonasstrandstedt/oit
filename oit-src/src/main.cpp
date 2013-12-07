@@ -371,13 +371,14 @@ void myRenderFunc(void)
 	render_scene();
 	gl4::ShaderManager::getInstance()->unbindShader();
 
-	
+	/*
 	// prevent sorting if S is pressed
 	if(!engine->isKeyPressed('S')) {
 		glUseProgram(sort_shader);
 		glDispatchComputeIndirect(0);
 		glUseProgram(0);
 	}
+	*/
 	
 	
 	

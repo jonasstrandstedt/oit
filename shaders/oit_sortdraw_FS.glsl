@@ -19,22 +19,15 @@ uvec4 fragments[MAX_FRAGMENTS];
 
 layout (location = 0) out vec4 diffuse;
 
-int build_local_fragments_list() {
+void build_local_fragments_list(uint offset, uint frag_count) {
 	uint current;
-	int frag_count = 0;
 
-	current = imageLoad(head_pointer_image, ivec2(gl_FragCoord.xy)).x;
-
-	while(current != 0 && frag_count < MAX_FRAGMENTS) {
-		uvec4 item = imageLoad(list_buffer, int(current));
-		current = item.x;
-
-		fragments[frag_count] = item;
-
-		frag_count++;
+	uint i;
+	for(i = 0; i < frag_count && i < MAX_FRAGMENTS; i++) {
+		uvec4 item = imageLoad(list_buffer, int(offset+i));
+		fragments[i] = item;
 	}
 
-	return frag_count;
 }
 
 void sort_fragments_list(int frag_count) {
@@ -59,20 +52,13 @@ vec4 blend(vec4 current_color, vec4 new_color) {
 	return mix(current_color, new_color, new_color.a);
 }
 
-vec4 calculate_final_color() {
+vec4 calculate_final_color(uint frag_count) {
 	vec4 final_color = vec4(0);
-
-	uint offset = imageLoad(head_pointer_image, ivec2(gl_FragCoord.xy));
-	uint frag_count = imageLoad(atomic_counter_array_buffer_texture, ivec2(gl_FragCoord.xy)).x;
-
-	uint i = 0;
-	while(i < frag_count) {
-		uvec4 item = imageLoad(list_buffer, int(offset+i));
+	for(i = 0; i < frag_count; i++) {
+		
+		uvec4 item = fragments[i];
 		vec4 frag_color = unpackUnorm4x8(item.y);
 		final_color = blend(final_color, frag_color);
-		//final_color = vec4(i /10.0f , 0 ,0, 1);
-		//final_color = vec4(offset /500794.0f , 0 ,0, 1);
-		i++;
 	}
 
 	return final_color;
@@ -80,13 +66,12 @@ vec4 calculate_final_color() {
 
 void main()
 {
-	int frag_count = 0;
+	uint offset = imageLoad(head_pointer_image, ivec2(gl_FragCoord.xy));
+	uint frag_count = imageLoad(atomic_counter_array_buffer_texture, ivec2(gl_FragCoord.xy)).x;
 
-	//frag_count = build_local_fragments_list();
-
-	//sort_fragments_list(frag_count);
-
-	diffuse = calculate_final_color();
+	build_local_fragments_list(offset, frag_count);
+	sort_fragments_list(frag_count);
+	diffuse = calculate_final_color(frag_count);
 
 	//diffuse = vec4(0, imageLoad(atomic_counter_array_buffer_texture, ivec2(gl_FragCoord.xy)).x / 6.0f, 0 ,1);
 }
