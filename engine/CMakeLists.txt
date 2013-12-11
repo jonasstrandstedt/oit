@@ -33,6 +33,7 @@ else()
 endif()
 add_definitions(-std=c++11)
 add_definitions(-DGLEW_STATIC)
+add_definitions(-DLIBPNG)
 #add_definitions(-v)
 
 include_directories(
@@ -44,5 +45,6 @@ TARGET_LINK_LIBRARIES(
    	GL4-Engine
    	glfw
    	GLEW
+   	png
 	${OPENGL_LIBRARIES}
 )

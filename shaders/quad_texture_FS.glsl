@@ -9,32 +9,31 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 */
 #version 430
 
-layout (early_fragment_tests) in;
 
+//layout (location = 3) uniform sampler2DArray sampler_out_texture;
+
+layout (binding = 0, r32ui) uniform uimage2D head_pointer_image;
+layout (binding = 1, rgba32ui) uniform uimageBuffer list_buffer;
 layout (binding = 2, r32ui) uniform uimage2D atomic_counter_array_buffer_texture;
 
-#define FILTER_SIZE 2
+//layout (binding = 3, rgba32f) uniform image2DArray out_texture;
+//readonly layout (binding = 3, size4x32) uniform image2DArray out_texture;
+layout (binding = 3, rgba32f) uniform image2D out_texture;
+
+
+
+layout (location = 0) out vec4 diffuse;
+
 
 void main()
 {
 
-	float sigma = 2.0;
-
-	/*
-	if(gl_FragCoord.x > FILTER_SIZE && gl_FragCoord.x < 800-FILTER_SIZE && gl_FragCoord.y > FILTER_SIZE && gl_FragCoord.y < 600-FILTER_SIZE) {
-
-		for(int dx = -FILTER_SIZE; dx <=FILTER_SIZE; ++dx ) {
-			for(int dy = -FILTER_SIZE; dy <=FILTER_SIZE; ++dy ) {
-				vec2 fragcoorddiff = vec2(dx,dy);
-				imageAtomicAdd(atomic_counter_array_buffer_texture, ivec2(gl_FragCoord.xy+fragcoorddiff), 1);
-				//weight[dy + FILTER_SIZE][dx + FILTER_SIZE] /= ksum;
-			}
-		}
-	} else {
-		imageAtomicAdd(atomic_counter_array_buffer_texture, ivec2(gl_FragCoord.xy), 1);
-	}
-	*/
 	
-	imageAtomicAdd(atomic_counter_array_buffer_texture, ivec2(gl_FragCoord.xy), 1);
-	
+	//diffuse = texelFetch(sampler_out_texture, ivec3(gl_FragCoord.xy,0),0);
+	//diffuse = texelFetch(sampler_out_texture, ivec2(gl_FragCoord.xy),0);
+	//diffuse = texture(sampler_out_texture,vec3(gl_FragCoord.xy,0));
+	//diffuse = vec4(1,1,1,1);
+
+	//diffuse = imageLoad(out_texture, ivec3(gl_FragCoord.xy,0));
+	diffuse = imageLoad(out_texture, ivec2(gl_FragCoord.xy));
 }

@@ -13,7 +13,7 @@ layout (binding = 0, r32ui) uniform uimage2D head_pointer_image;
 layout (binding = 1, rgba32ui) uniform uimageBuffer list_buffer;
 layout (binding = 2, r32ui) uniform uimage2D atomic_counter_array_buffer_texture;
 
-#define MAX_FRAGMENTS 256
+#define MAX_FRAGMENTS 32
 
 uvec4 fragments[MAX_FRAGMENTS];
 
@@ -30,21 +30,30 @@ void build_local_fragments_list(uint offset, uint frag_count) {
 
 }
 
-void sort_fragments_list(int frag_count) {
-	int i;
-	int j;
+void sort_fragments_list(uint frag_count) {
+	uint i,j;
+	uvec4 tmp;
 
+	/*
+	// BUBBLE SORT
 	for(i = 0; i < frag_count; i++) {
 		for(j = i + 1; j < frag_count; j++) {
-			float depth_i = uintBitsToFloat(fragments[i].z);
-			float depth_j = uintBitsToFloat(fragments[j].z);
-
-			if(depth_i > depth_j) {
-				uvec4 tmp = fragments[i];
+			if(fragments[i].z <fragments[j].z) {
+				tmp = fragments[i];
 				fragments[i] = fragments[j];
 				fragments[j] = tmp;
 			}
 		}
+	}
+	*/
+
+	// INSERTION SORT
+	for(i = 1; i < frag_count; ++i) {
+		tmp = fragments[i];
+		for(j = i; j > 0 && tmp.z > fragments[j-1].z; --j) {
+			fragments[j] = fragments[j-1];
+		}
+		fragments[j] = tmp;
 	}
 }
 
@@ -52,9 +61,11 @@ vec4 blend(vec4 current_color, vec4 new_color) {
 	return mix(current_color, new_color, new_color.a);
 }
 
+
 vec4 calculate_final_color(uint frag_count) {
+	
 	vec4 final_color = vec4(0);
-	for(i = 0; i < frag_count; i++) {
+	for(uint i = 0; i < frag_count; i++) {
 		
 		uvec4 item = fragments[i];
 		vec4 frag_color = unpackUnorm4x8(item.y);
@@ -62,7 +73,24 @@ vec4 calculate_final_color(uint frag_count) {
 	}
 
 	return final_color;
+
 }
+
+/*
+vec4 calculate_final_color(uint offset, uint frag_count) {
+
+
+	vec4 final_color = vec4(0);
+	for(uint i = 0; i < frag_count; i++) {
+		
+		uvec4 item = imageLoad(list_buffer, int(offset+i));;
+		vec4 frag_color = unpackUnorm4x8(item.y);
+		final_color = blend(final_color, frag_color);
+	}
+
+	return final_color;
+}
+*/
 
 void main()
 {
@@ -72,6 +100,7 @@ void main()
 	build_local_fragments_list(offset, frag_count);
 	sort_fragments_list(frag_count);
 	diffuse = calculate_final_color(frag_count);
+	//diffuse = calculate_final_color(offset,frag_count);
 
 	//diffuse = vec4(0, imageLoad(atomic_counter_array_buffer_texture, ivec2(gl_FragCoord.xy)).x / 6.0f, 0 ,1);
 }

@@ -14,12 +14,12 @@ layout (early_fragment_tests) in;
 layout(location = 0) uniform mat4 Projection;
 layout(location = 1) uniform mat4 ModelTransform;
 layout(location = 2) uniform vec4 base_color;
+layout(location = 3) uniform sampler2D base_texture;
 
 layout (binding = 0, r32ui) uniform uimage2D head_pointer_image;
 layout (binding = 1, rgba32ui) uniform uimageBuffer list_buffer;
 layout (binding = 2, r32ui) uniform uimage2D atomic_counter_array_buffer_texture;
 
-layout (location = 0) out vec4 diffuse;
 
 layout (location = 0) in vec2 st;
 layout (location = 1) in vec3 frag_position;
@@ -27,13 +27,16 @@ layout (location = 2) in vec3 frag_normal;
 
 uniform vec3 light_position = vec3(40.0, 20.0, 100.0);
 
-#define FILTER_SIZE 0
+#define FILTER_SIZE 2
 float weight[FILTER_SIZE*2 +1][FILTER_SIZE*2 +1];
 
 void main()
 {
 
 	vec4 frag_color = base_color;
+	if(base_color.a == 0.0) {
+		frag_color = texture(base_texture, st);
+	}
 	uint index;
 	uint offset;
 
@@ -53,7 +56,6 @@ void main()
 	item.z = floatBitsToUint(gl_FragCoord.z);
 	item.w = 0;
 
-	diffuse = frag_color;
 
 	float sigma = 1.0;
 /*
@@ -67,7 +69,7 @@ void main()
 		}
 		for(int dx = -FILTER_SIZE; dx <=FILTER_SIZE; ++dx ) {
 			for(int dy = -FILTER_SIZE; dy <=FILTER_SIZE; ++dy ) {
-				//weight[dy + FILTER_SIZE][dx + FILTER_SIZE] /= ksum;
+				weight[dy + FILTER_SIZE][dx + FILTER_SIZE] /= ksum;
 			}
 		}
 		for(int dx = -FILTER_SIZE; dx <=FILTER_SIZE; ++dx ) {
@@ -76,7 +78,7 @@ void main()
 				index = imageAtomicAdd(atomic_counter_array_buffer_texture, ivec2(gl_FragCoord.xy+fragcoorddiff), 1);
 				offset = imageLoad(head_pointer_image, ivec2(gl_FragCoord.xy+fragcoorddiff));
 
-				//item.y = packUnorm4x8(frag_color*weight[dy + FILTER_SIZE][dx + FILTER_SIZE]);
+				item.y = packUnorm4x8(vec4(frag_color.xyz,frag_color.a*weight[dy + FILTER_SIZE][dx + FILTER_SIZE]));
 				imageStore(list_buffer, int(index+offset), item);
 			}
 		}
@@ -85,9 +87,10 @@ void main()
 		offset = imageLoad(head_pointer_image, ivec2(gl_FragCoord.xy));
 		imageStore(list_buffer, int(index+offset), item);
 	}
-	*/
+*/	
 	index = imageAtomicAdd(atomic_counter_array_buffer_texture, ivec2(gl_FragCoord.xy), 1);
 	offset = imageLoad(head_pointer_image, ivec2(gl_FragCoord.xy));
 	imageStore(list_buffer, int(index+offset), item);
 
+	discard;
 }
