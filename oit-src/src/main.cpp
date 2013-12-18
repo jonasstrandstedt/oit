@@ -10,6 +10,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 #include "Engine.h"
 #include "Sphere.h"
 #include "Model.h"
+#include "main.h"
+
 
 // objects
 gl4::VBO *obj;
@@ -62,174 +64,15 @@ float * get_dof_buffer;
 #define DOF_LAYERS 1
 GLuint dof_initializer;
 GLuint dof_textures;
-GLuint ping;
-
-const GLchar * sort_source [] = {
-R"(#version 430
-
-layout(local_size_x = 16, local_size_y = 16) in;
-
-layout (binding = 0, r32ui) uniform uimage2D head_pointer_image;
-layout (binding = 1, rgba32ui) uniform uimageBuffer list_buffer;
-layout (binding = 2, r32ui) uniform uimage2D atomic_counter_array_buffer_texture;
-
-void main() {
-
-	uint offset = imageLoad(head_pointer_image, ivec2(gl_GlobalInvocationID.xy));
-	uint frag_count = imageLoad(atomic_counter_array_buffer_texture, ivec2(gl_GlobalInvocationID.xy)).x;
-	int frag_counti = int(frag_count);
-
-	uvec4 item_i;
-	uvec4 item_j;
-
-	float depth_i;
-	float depth_j;
-
-	
-
-	// SELECTION SORT
-	uvec4 item_min, item_next;
-	int iMin;
-	float depth_min;
-	item_next = imageLoad(list_buffer, int(offset));
-	depth_min = uintBitsToFloat(item_next.z);
-
-	for(int i = 0; i < frag_counti-1; i++) {
-		iMin = i;
-		item_i = item_next;
-		item_min = item_i;
-
-		for(int j = i+1; j < frag_counti; j++) {
-			item_j = imageLoad(list_buffer, int(offset + j));
-
-			if(i+1 == j) {
-				item_next = item_j;
-			}
-
-			if(item_i.z < item_j.z) {
-				item_min = item_j;
-				iMin = j;
-			}
-		}
-
-		// something was smaller, swap
-		if (iMin > i)
-		{
-			imageStore(list_buffer, int(offset + i), item_min);
-			imageStore(list_buffer, int(offset + iMin), item_i);
-		}
-		
-	}
-/*
+GLuint dof_temp;
+GLuint dof_final;
+gl4::FBO ping, pong, fbo_tmp, fbo_final;
+GLuint dof_render_shader;
+GLuint dof_combine_shader;
 
 
-	// BUBBLE SORT
-	uvec4 tmp;
-	for(int i = 0; i < frag_counti-1; i++) {
-		item_i = imageLoad(list_buffer, int(offset + i));
 
-		for(int j = i+1; j < frag_counti; j++) {
-			item_j = imageLoad(list_buffer, int(offset + j));
-
-			if(item_i.z < item_j.z) {
-				imageStore(list_buffer, int(offset + i), item_j);
-				imageStore(list_buffer, int(offset + j), item_i);
-
-				tmp = item_i;
-				item_i = item_j;
-				item_j = tmp;
-
-			}
-		}
-		
-	}
-*/
-
-
-};
-
-)"};
-
-const GLchar * render_source [] = {
-R"(#version 430
-
-#define MAX_FRAGMENTS_LAYERS 32
-#define MAX_OUT_TEXTURES 2
-
-layout(local_size_x = 16, local_size_y = 16) in;
-
-layout (binding = 0, r32ui) uniform uimage2D head_pointer_image;
-layout (binding = 1, rgba32ui) uniform uimageBuffer list_buffer;
-layout (binding = 2, r32ui) uniform uimage2D atomic_counter_array_buffer_texture;
-
-//writeonly layout (binding = 3, size4x32) uniform image2DArray out_texture;
-//layout (binding = 3, rgba32f) writeonly uniform image2D out_texture[MAX_OUT_TEXTURES];
-layout (binding = 3, rgba32f) writeonly uniform image2D out_texture;
-//layout (binding = 3) writeonly uniform image2DArray out_texture;
-
-
-uvec4 fragments[MAX_FRAGMENTS_LAYERS];
-
-void build_local_fragments_list(uint offset, uint frag_count) {
-	uint current;
-
-	uint i;
-	for(i = 0; i < frag_count && i < MAX_FRAGMENTS_LAYERS; i++) {
-		uvec4 item = imageLoad(list_buffer, int(offset+i));
-		fragments[i] = item;
-	}
-
-}
-
-void sort_fragments_list(uint frag_count) {
-	uint i,j;
-	uvec4 tmp;
-
-	// INSERTION SORT
-	for(i = 1; i < frag_count; ++i) {
-		tmp = fragments[i];
-		for(j = i; j > 0 && tmp.z > fragments[j-1].z; --j) {
-			fragments[j] = fragments[j-1];
-		}
-		fragments[j] = tmp;
-	}
-}
-
-vec4 blend(vec4 current_color, vec4 new_color) {
-	return mix(current_color, new_color, new_color.a);
-}
-
-vec4 calculate_final_color(uint frag_count) {
-	
-	vec4 final_color = vec4(0);
-	for(uint i = 0; i < frag_count; i++) {
-		
-		uvec4 item = fragments[i];
-		vec4 frag_color = unpackUnorm4x8(item.y);
-		final_color = blend(final_color, frag_color);
-	}
-
-	return final_color;
-
-}
-
-void main()
-{
-	uint offset = imageLoad(head_pointer_image, ivec2(gl_GlobalInvocationID.xy));
-	uint frag_count = imageLoad(atomic_counter_array_buffer_texture, ivec2(gl_GlobalInvocationID.xy)).x;
-
-	build_local_fragments_list(offset, frag_count);
-	sort_fragments_list(frag_count);
-	vec4 diffuse = calculate_final_color(frag_count);
-
-
-	//imageStore(out_texture, ivec3(gl_GlobalInvocationID.xy,0), diffuse);
-	imageStore(out_texture, ivec2(gl_GlobalInvocationID.xy), diffuse);
-}
-
-)"};
-
-
+void render_to_final(GLuint texture);
 void render_scene();
 
 int main(int argc, char **argv) {
@@ -316,13 +159,18 @@ void myInitFunc(void)
 	gl4::Shader *passthrough = new gl4::Shader("../shaders/passthrough_VS.glsl", "../shaders/passthrough_FS.glsl");
 	gl4::Shader *oit_render = new gl4::Shader("../shaders/oit_render_VS.glsl", "../shaders/oit_render_FS.glsl");
 	gl4::Shader *oit_sortdraw = new gl4::Shader("../shaders/oit_sortdraw_VS.glsl", "../shaders/oit_sortdraw_FS.glsl");
-	gl4::Shader *oit_counter= new gl4::Shader("../shaders/oit_counter_VS.glsl", "../shaders/oit_counter_FS.glsl");
-	gl4::Shader *quad_texture= new gl4::Shader("../shaders/quad_texture_VS.glsl", "../shaders/quad_texture_FS.glsl");
+	gl4::Shader *oit_counter = new gl4::Shader("../shaders/oit_counter_VS.glsl", "../shaders/oit_counter_FS.glsl");
+	gl4::Shader *quad_texture = new gl4::Shader("../shaders/quad_texture_VS.glsl", "../shaders/quad_texture_FS.glsl");
+	gl4::Shader *blur_x = new gl4::Shader("../shaders/quad_blur_x_VS.glsl", "../shaders/quad_blur_x_FS.glsl");
+	gl4::Shader *blur_y = new gl4::Shader("../shaders/quad_blur_y_VS.glsl", "../shaders/quad_blur_y_FS.glsl");
+
 	gl4::ShaderManager::getInstance()->addShaderProgram("passthrough", passthrough);
 	gl4::ShaderManager::getInstance()->addShaderProgram("oit_render", oit_render);
 	gl4::ShaderManager::getInstance()->addShaderProgram("oit_sortdraw", oit_sortdraw);
 	gl4::ShaderManager::getInstance()->addShaderProgram("oit_counter", oit_counter);
 	gl4::ShaderManager::getInstance()->addShaderProgram("quad_texture", quad_texture);
+	gl4::ShaderManager::getInstance()->addShaderProgram("blur_x", blur_x);
+	gl4::ShaderManager::getInstance()->addShaderProgram("blur_y", blur_y);
 
 	loc_base_color = glGetUniformLocation( oit_render->getShaderProgram(), "base_color");
 
@@ -429,6 +277,62 @@ void myInitFunc(void)
 	glBufferData(GL_DISPATCH_INDIRECT_BUFFER, sizeof(dispatch_params), &dispatch_params, GL_STATIC_DRAW);
 	glUseProgram(0);
 
+	// DOF RENDER SHADER
+	GLuint dof_render_shader_part = glCreateShader(GL_COMPUTE_SHADER);
+    glShaderSource(dof_render_shader_part, 1, render_dof_source, NULL);
+	glCompileShader(dof_render_shader_part);
+
+	dof_render_shader = glCreateProgram();
+	glAttachShader(dof_render_shader, dof_render_shader_part);
+	glLinkProgram(dof_render_shader);
+
+	shadersLinked = GL_FALSE;
+
+	// Link the program object and print out the info log
+	glGetProgramiv( dof_render_shader, GL_LINK_STATUS, &shadersLinked );
+
+	if( shadersLinked == GL_FALSE )
+	{
+		glGetInfoLogARB( dof_render_shader, sizeof(str), NULL, str );
+		ERRLOG("Program object linking error: %s\n", str);
+	} 
+
+	glUseProgram(dof_render_shader);
+
+	glGenBuffers(1, & dispatch_buffer);
+	glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, dispatch_buffer);
+
+	glBufferData(GL_DISPATCH_INDIRECT_BUFFER, sizeof(dispatch_params), &dispatch_params, GL_STATIC_DRAW);
+	glUseProgram(0);
+
+	// DOF COMBINE SHADER
+	GLuint dof_combine_shader_part = glCreateShader(GL_COMPUTE_SHADER);
+    glShaderSource(dof_combine_shader_part, 1, combine_dof_source, NULL);
+	glCompileShader(dof_combine_shader_part);
+
+	dof_combine_shader = glCreateProgram();
+	glAttachShader(dof_combine_shader, dof_combine_shader_part);
+	glLinkProgram(dof_combine_shader);
+
+	shadersLinked = GL_FALSE;
+
+	// Link the program object and print out the info log
+	glGetProgramiv( dof_combine_shader, GL_LINK_STATUS, &shadersLinked );
+
+	if( shadersLinked == GL_FALSE )
+	{
+		glGetInfoLogARB( dof_combine_shader, sizeof(str), NULL, str );
+		ERRLOG("Program object linking error: %s\n", str);
+	} 
+
+	glUseProgram(dof_combine_shader);
+
+	glGenBuffers(1, & dispatch_buffer);
+	glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, dispatch_buffer);
+
+	glBufferData(GL_DISPATCH_INDIRECT_BUFFER, sizeof(dispatch_params), &dispatch_params, GL_STATIC_DRAW);
+	glUseProgram(0);
+
 	get_pixel_buffer = new unsigned int[total_pixels];
 	get_dof_buffer = new float[total_pixels*4*DOF_LAYERS];
 
@@ -442,16 +346,30 @@ void myInitFunc(void)
 	glBufferData(GL_PIXEL_UNPACK_BUFFER, total_pixels * 4*sizeof(GLfloat)*DOF_LAYERS, NULL, GL_STATIC_DRAW);
 
 	dataf = (GLfloat*)glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
-	memset(dataf, 0x00, total_pixels *4* sizeof(GLfloat)*DOF_LAYERS);
+	memset(dataf, 0x00, total_pixels *4* sizeof(GLfloat));
 	glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
 	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 	
 	glGenTextures(1, &dof_textures);
-	//glBindTexture(GL_TEXTURE_2D, dof_textures);
-	//glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, MAX_FRAMEBUFFER_WIDTH, MAX_FRAMEBUFFER_HEIGHT, 0, GL_RGBA, GL_FLOAT, NULL);
-	glBindTexture(GL_TEXTURE_2D_ARRAY, dof_textures);
-	glTexParameteri(GL_TEXTURE_2D_ARRAY,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);
-	glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA32F, MAX_FRAMEBUFFER_WIDTH, MAX_FRAMEBUFFER_HEIGHT, DOF_LAYERS,0, GL_RGBA, GL_FLOAT, NULL);
+	glBindTexture(GL_TEXTURE_2D, dof_textures);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, MAX_FRAMEBUFFER_WIDTH, MAX_FRAMEBUFFER_HEIGHT,0, GL_RGBA, GL_FLOAT, NULL);
+
+	glGenTextures(1, &dof_final);
+	glBindTexture(GL_TEXTURE_2D, dof_final);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, MAX_FRAMEBUFFER_WIDTH, MAX_FRAMEBUFFER_HEIGHT,0, GL_RGBA, GL_FLOAT, NULL);
+
+	glGenTextures(1, &dof_temp);
+	glBindTexture(GL_TEXTURE_2D, dof_temp);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, MAX_FRAMEBUFFER_WIDTH, MAX_FRAMEBUFFER_HEIGHT,0, GL_RGBA, GL_FLOAT, NULL);
+
+	ping.setTextureFormat(GL_RGBA32F);
+	pong.setTextureFormat(GL_RGBA32F);
+	fbo_final.setTextureFormat(GL_RGBA32F);
+	fbo_tmp.setTextureFormat(GL_RGBA32F);
+	ping.init(800,600);
+	pong.init(800,600);
+	fbo_final.init(800,600);
+	fbo_tmp.init(800,600);
 
 
 	/*
@@ -476,17 +394,18 @@ void myRenderFunc(void)
 {
 	
 	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, dof_initializer);
-	glBindTexture(GL_TEXTURE_2D_ARRAY, dof_textures);
-	glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA32F, MAX_FRAMEBUFFER_WIDTH, MAX_FRAMEBUFFER_HEIGHT, DOF_LAYERS,0, GL_RGBA, GL_FLOAT, NULL);
-	
-	/*
-	for (int i = 0; i < DOF_LAYERS; ++i)
-	{
-		glBindTexture(GL_TEXTURE_2D, dof_textures[i]);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, MAX_FRAMEBUFFER_WIDTH, MAX_FRAMEBUFFER_HEIGHT, 0, GL_RGBA, GL_FLOAT, NULL);
-	}
-	*/
+	glBindTexture(GL_TEXTURE_2D, dof_textures);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, MAX_FRAMEBUFFER_WIDTH, MAX_FRAMEBUFFER_HEIGHT,0, GL_RGBA, GL_FLOAT, NULL);
+	glBindTexture(GL_TEXTURE_2D, dof_final);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, MAX_FRAMEBUFFER_WIDTH, MAX_FRAMEBUFFER_HEIGHT,0, GL_RGBA, GL_FLOAT, NULL);
+	glBindTexture(GL_TEXTURE_2D, dof_temp);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, MAX_FRAMEBUFFER_WIDTH, MAX_FRAMEBUFFER_HEIGHT,0, GL_RGBA, GL_FLOAT, NULL);
 	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+
+	fbo_final.clear();
+	ping.clear();
+	pong.clear();
+	fbo_tmp.clear();
 
 	// bind buffer initializer
 	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, head_pointer_initializer);
@@ -504,12 +423,12 @@ void myRenderFunc(void)
     glBindImageTexture(0, head_pointer_texture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
     glBindImageTexture(1, linked_list_texture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32UI);
     glBindImageTexture(2, atomic_counter_array_buffer_texture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
-    glBindImageTexture(3, dof_textures, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
 
 
 
 	// count fragments
 	gl4::ShaderManager::getInstance()->bindShader("oit_counter");
+	glUniformMatrix4fv(4, 1, GL_FALSE, &camera_transform[0][0]);
 	render_scene();
 	gl4::ShaderManager::getInstance()->unbindShader();
 
@@ -546,48 +465,181 @@ void myRenderFunc(void)
     glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, gl4::TextureManager::getInstance()->getTexture("checkerboard"));
 	glUniform1i(3, 0);
+	glUniformMatrix4fv(4, 1, GL_FALSE, &camera_transform[0][0]);
 	render_scene();
 	gl4::ShaderManager::getInstance()->unbindShader();
 
 	
-	/*
+	
 	// prevent sorting if S is pressed
-	if(!engine->isKeyPressed('S')) {
+	if(!engine->isKeyPressed('P')) {
 		glUseProgram(sort_shader);
 		glDispatchComputeIndirect(0);
 		glUseProgram(0);
 	}
-	*/
 	
+	/*
 	glUseProgram(render_shader);
 	glDispatchComputeIndirect(0);
 	glUseProgram(0);
+	*/
 /*
-	glBindTexture(GL_TEXTURE_2D_ARRAY, dof_textures);
-	glGetTexImage(GL_TEXTURE_2D_ARRAY,0,GL_RGBA,GL_FLOAT,get_dof_buffer);
+	glBindTexture(GL_TEXTURE_2D, dof_final);
+	glGetTexImage(GL_TEXTURE_2D,0,GL_RED_INTEGER,GL_UNSIGNED_INT,get_dof_buffer);
 	for (unsigned int i = 0; i < total_pixels*4; i+=4) {
-		bool hittad = false;
-		for (int j = 0; j < 4; ++j)
-		{
-			if (get_dof_buffer[i+j])
-			{
-				hittad = true;
-			}
-		}
-		if(hittad)
-			printf("(%f, %f, %f, %f)\n",get_dof_buffer[i],get_dof_buffer[i+1],get_dof_buffer[i+2],get_dof_buffer[i+3]);
+		printf("(%f, %f, %f, %f)\n", get_dof_buffer[i+0], get_dof_buffer[i+1], get_dof_buffer[i+2], get_dof_buffer[i+3]);
+	}
+*/
+
+	const float d_near = 0.0f;
+	const float d_far = 30.0f;
+	const int layers = 2;
+	const float steps = (d_far - d_near) / layers;
+	GLuint lastTarget = 0;
+
+/*
+	 {
+		float from =0.0f;
+		float to = 5.0f;
+
+		glUseProgram(dof_render_shader);
+
+
+		// render to temp
+	    glBindImageTexture(3, fbo_tmp.getTexture(0), 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
+		glUniform1f(0, from);
+		glUniform1f(1, to);
+		glDispatchComputeIndirect(0);
+		glFinish();
+		glUseProgram(0);
+	    lastTarget = fbo_tmp.getTexture(0);
+
+	    render_to_final(lastTarget);
+
+	    from =5.0f;
+		to = 100.0f;
+
+		glUseProgram(dof_render_shader);
+
+
+		// render to temp
+	    glBindImageTexture(3, fbo_tmp.getTexture(0), 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
+		glUniform1f(0, from);
+		glUniform1f(1, to);
+		glDispatchComputeIndirect(0);
+		glFinish();
+		glUseProgram(0);
+	    lastTarget = fbo_tmp.getTexture(0);
+
+	    for (int j = 0; j < 2; ++j)
+	    {
+	    	// blur to ping
+			ping.bind();
+			gl4::ShaderManager::getInstance()->bindShader("blur_x");
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_2D, lastTarget);
+			//glBindTexture(GL_TEXTURE_2D, gl4::TextureManager::getInstance()->getTexture("checkerboard"));
+			glUniform1i(3, 0);
+			engine->useOrthogonalProjection();
+			obj->render();
+
+			ping.unbind();
+
+			// blur to pong
+			pong.bind();
+			gl4::ShaderManager::getInstance()->bindShader("blur_y");
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_2D, ping.getTexture(0));
+			glUniform1i(3, 0);
+			engine->useOrthogonalProjection();
+			obj->render();
+
+			pong.unbind();
+			lastTarget = pong.getTexture(0);
+	    }
+
+		
+
+		// combine
+		//render_to_final(ping.getTexture(0));
+		//render_to_final(pong.getTexture(0));
+		//render_to_final(dof_temp);
+
+		//ping.clear();
+		//pong.clear();
 	}
 	*/
 	
+	for (int i = 0; i < layers; ++i) {
+		float from = d_near + i*steps;// -1.0f;
+		float to = d_near + (i+1)*steps;//+0.001f;
+
+		glUseProgram(dof_render_shader);
+
+
+		// render to temp
+	    glBindImageTexture(3, fbo_tmp.getTexture(0), 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
+		glUniform1f(0, from);
+		glUniform1f(1, to);
+		glDispatchComputeIndirect(0);
+		glFinish();
+		glUseProgram(0);
+	    lastTarget = fbo_tmp.getTexture(0);
+
+	    for (int j = 0; j < i; ++j)
+	    {
+	    	// blur to ping
+			ping.bind();
+			gl4::ShaderManager::getInstance()->bindShader("blur_x");
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_2D, lastTarget);
+			//glBindTexture(GL_TEXTURE_2D, gl4::TextureManager::getInstance()->getTexture("checkerboard"));
+			glUniform1i(3, 0);
+			engine->useOrthogonalProjection();
+			obj->render();
+
+			ping.unbind();
+
+			// blur to pong
+			pong.bind();
+			gl4::ShaderManager::getInstance()->bindShader("blur_y");
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_2D, ping.getTexture(0));
+			glUniform1i(3, 0);
+			engine->useOrthogonalProjection();
+			obj->render();
+
+			pong.unbind();
+			lastTarget = pong.getTexture(0);
+	    }
+
+		
+
+		// combine
+		//render_to_final(ping.getTexture(0));
+		render_to_final(lastTarget);
+		//render_to_final(dof_temp);
+		/*
+		glUseProgram(dof_combine_shader);
+	    glBindImageTexture(3, dof_final, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
+	    glBindImageTexture(4, pong.getTexture(0), 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
+		glDispatchComputeIndirect(0);
+		glUseProgram(0);
+		*/
+		//ping.clear();
+		//pong.clear();
+	}
+	
+
+	
 	// do the actual draw
 	gl4::ShaderManager::getInstance()->bindShader("quad_texture");
+	glBindImageTexture(4, fbo_final.getTexture(0), 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
+	//glBindImageTexture(3, dof_temp, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
+	//glBindImageTexture(3,  fbo_tmp.getTexture(0), 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
+	//glBindImageTexture(3,  ping.getTexture(0), 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
+	//glBindImageTexture(3,  pong.getTexture(0), 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
 	engine->useOrthogonalProjection();
-
-	//glActiveTexture(GL_TEXTURE0);
-	//glBindTexture(GL_TEXTURE_2D, dof_textures);
-	//glBindTexture(GL_TEXTURE_2D_ARRAY, dof_textures);
-	//glUniform1i(3, 0);
-
 	obj->render();
 	gl4::ShaderManager::getInstance()->unbindShader();
 
@@ -602,7 +654,7 @@ void render_scene() {
 	float bunny_scale = 9.0;
 	glm::vec4 bunny_color(1.0,1.0,0.0,0.2);
 	glm::mat4 bunny_transform = glm::mat4(1.0);
-	bunny_transform = camera_transform *bunny_transform;
+	//bunny_transform = camera_transform *bunny_transform;
 	bunny_transform = glm::translate(bunny_transform, glm::vec3( bunny_position[1]*0.05+10.0f, -0.3, -bunny_position[0]*0.05-5.0f));
 	bunny_transform = glm::rotate(bunny_transform,bunny_position[2], glm::vec3(0.0f, 1.0f, 0.0f));
 	bunny_transform = glm::rotate(bunny_transform,0.0f, glm::vec3(1.0f, 0.0f, 0.0f));
@@ -611,7 +663,7 @@ void render_scene() {
 	float dragon_scale = 9.0;
 	glm::vec4 dragon_color(0.0,1.0,1.0,0.2);
 	glm::mat4 dragon_transform = glm::mat4(1.0);
-	dragon_transform = camera_transform *dragon_transform;
+	//dragon_transform = camera_transform *dragon_transform;
 	dragon_transform = glm::translate(dragon_transform, glm::vec3(8.0f, -0.5, -3.0));
 	dragon_transform = glm::rotate(dragon_transform,135.0f, glm::vec3(0.0f, 1.0f, 0.0f));
 	dragon_transform = glm::rotate(dragon_transform,0.0f, glm::vec3(1.0f, 0.0f, 0.0f));
@@ -620,7 +672,7 @@ void render_scene() {
 	float armadillo_scale = 0.01; //armadillo_scale = 9.0;
 	glm::vec4 armadillo_color(1.0,1.0,1.0,1.0);
 	glm::mat4 armadillo_transform = glm::mat4(1.0);
-	armadillo_transform = camera_transform *armadillo_transform;
+	//armadillo_transform = camera_transform *armadillo_transform;
 	armadillo_transform = glm::translate(armadillo_transform, glm::vec3(13.4f, 0.6, -6.2));
 	armadillo_transform = glm::rotate(armadillo_transform,130.0f, glm::vec3(0.0f, 1.0f, 0.0f));
 	armadillo_transform = glm::rotate(armadillo_transform,0.0f, glm::vec3(1.0f, 0.0f, 0.0f));
@@ -628,7 +680,7 @@ void render_scene() {
 
 	float box_scale = 0.01;
 	glm::mat4 box_transform = glm::mat4(1.0);
-	box_transform = camera_transform *box_transform;
+	//box_transform = camera_transform *box_transform;
 	box_transform = glm::translate(box_transform, glm::vec3(13.0f, 1.0, -7.0));
 	box_transform = glm::rotate(box_transform,40.0f, glm::vec3(0.0f, 1.0f, 0.0f));
 	box_transform = glm::rotate(box_transform,0.0f, glm::vec3(1.0f, 0.0f, 0.0f));
@@ -639,8 +691,8 @@ void render_scene() {
 
 	glm::mat4 floor_transform = glm::mat4(1.0);
 	glm::mat4 wall_transform = glm::mat4(1.0);
-	floor_transform = camera_transform *floor_transform;
-	wall_transform = camera_transform *wall_transform;
+	//floor_transform = camera_transform *floor_transform;
+	//wall_transform = camera_transform *wall_transform;
 	floor_transform = glm::translate(floor_transform, glm::vec3(0.0, 0.0, 0.0));
 	floor_transform = glm::rotate(floor_transform,-90.0f, glm::vec3(1.0f, 0.0f, 0.0f));
 	floor_transform = glm::scale(floor_transform,glm::vec3(plane_scale,plane_scale,plane_scale));
@@ -704,16 +756,16 @@ void myUpdateFunc(float dt)
 		camera_position[2] -= dt*speed;
 	}
 	if(engine->isKeyPressed('Q')) {
-		camera_rotation[0] += dt*speed*3.0f;
+		camera_rotation[0] += dt*speed*7.0f;
 	}
 	if(engine->isKeyPressed('E')) {
-		camera_rotation[0] -= dt*speed*3.0f;
+		camera_rotation[0] -= dt*speed*7.0f;
 	}
 	if(engine->isKeyPressed('X')) {
-		camera_rotation[1] += dt*speed*3.0f;
+		camera_rotation[1] += dt*speed*7.0f;
 	}
 	if(engine->isKeyPressed('C')) {
-		camera_rotation[1] -= dt*speed*3.0f;
+		camera_rotation[1] -= dt*speed*7.0f;
 	}
 	camera_transform = glm::translate(camera_transform, glm::vec3(camera_position[1], camera_position[2], camera_position[0]));
 	camera_transform = glm::rotate(camera_transform,camera_rotation[0], glm::vec3(1.0f, 0.0f, 0.0f));
@@ -756,3 +808,31 @@ void myUpdateFunc(float dt)
 		bunny_position[0] -= dt*speed;
 	}	
 }
+
+void render_to_final(GLuint texture) {
+
+	glEnable(GL_BLEND);
+	//glBlendFunc(GL_ONE_MINUS_SRC_ALPHA, GL_ONE);
+	//glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+	//glBlendFunc(GL_ONE_MINUS_DST_ALPHA, GL_ONE);
+	//glBlendFunc(GL_ZERO, GL_ONE);
+	//glBlendFunc(GL_ONE, GL_ZERO);
+	glBlendFunc(GL_ONE, GL_ONE);
+	//glBlendFunc(GL_ONE_MINUS_SRC_ALPHA, GL_SRC_ALPHA);
+	fbo_final.bind();
+	gl4::ShaderManager::getInstance()->bindShader("quad_texture");
+	
+	glBindImageTexture(4, texture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA32F);
+	/*
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	glUniform1i(3, 0);
+	*/
+	engine->useOrthogonalProjection();
+	obj->render();
+	gl4::ShaderManager::getInstance()->unbindShader();
+	fbo_final.unbind();
+	glBlendFunc(GL_ONE, GL_ZERO);
+	glDisable(GL_BLEND);
+}
+

@@ -12,6 +12,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 layout(location = 0) uniform mat4 Projection;
 layout(location = 1) uniform mat4 ModelTransform;
 layout(location = 2) uniform vec4 base_color;
+layout(location = 4) uniform mat4 CameraTransform;
 
 layout(location = 0) in vec3 vertex_position;
 layout(location = 1) in vec2 vertex_tex;
@@ -33,5 +34,5 @@ void main()
 	out_position =  vpos.xyz;
 	out_normal =  vnorm.xyz;
 
-	gl_Position = Projection * vpos;
+	gl_Position = Projection * CameraTransform* vpos;
 }

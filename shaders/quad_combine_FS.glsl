@@ -9,18 +9,23 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 */
 #version 430
 
-layout (binding = 4, rgba32f) uniform image2D out_texture;
-//layout(location = 3) uniform sampler2D image;
+
+layout (binding = 3, rgba32f) uniform image2D final_image;
 
 
-layout(location = 0) in vec2 in_tex;
-layout(location = 1) in vec3 in_position;
 
 layout (location = 0) out vec4 diffuse;
 
 
 void main()
 {
-	//diffuse  = texture( image, gl_FragCoord.xy/800.0f);
+
+	
+	//diffuse = texelFetch(sampler_out_texture, ivec3(gl_FragCoord.xy,0),0);
+	//diffuse = texelFetch(sampler_out_texture, ivec2(gl_FragCoord.xy),0);
+	//diffuse = texture(sampler_out_texture,vec3(gl_FragCoord.xy,0));
+	//diffuse = vec4(1,1,1,1);
+
+	//diffuse = imageLoad(out_texture, ivec3(gl_FragCoord.xy,0));
 	diffuse = imageLoad(out_texture, ivec2(gl_FragCoord.xy));
 }

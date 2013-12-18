@@ -9,18 +9,22 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 */
 #version 430
 
-layout (binding = 4, rgba32f) uniform image2D out_texture;
-//layout(location = 3) uniform sampler2D image;
+layout(location = 0) uniform mat4 Projection;
+layout(location = 1) uniform mat4 ModelTransform;
 
+layout(location = 0) in vec3 vertex_position;
+layout(location = 1) in vec2 vertex_tex;
+layout(location = 2) in vec3 vertex_normal;
+layout(location = 3) in vec4 vertex_color;
+layout(location = 4) in vec3 vertex_attribute3f;
+layout(location = 5) in float vertex_attribute1f;
 
-layout(location = 0) in vec2 in_tex;
-layout(location = 1) in vec3 in_position;
-
-layout (location = 0) out vec4 diffuse;
-
+layout(location = 0) out vec2 out_tex;
+layout(location = 1) out vec3 out_position;
 
 void main()
 {
-	//diffuse  = texture( image, gl_FragCoord.xy/800.0f);
-	diffuse = imageLoad(out_texture, ivec2(gl_FragCoord.xy));
+	out_position =  vertex_position;
+	gl_Position = Projection * ModelTransform * vec4(vertex_position,1);
+	out_tex = vertex_tex;
 }
