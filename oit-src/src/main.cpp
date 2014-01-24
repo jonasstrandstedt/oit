@@ -147,8 +147,9 @@ void myInitFunc(void)
 	gl4::TextureManager::getInstance()->loadTexture("checkerboard", "../data/checkerboard.png");
 
 	gl4::Shader *quad_texture = new gl4::Shader("../shaders/quad_texture_VS.glsl", "../shaders/quad_texture_FS.glsl");
-
 	gl4::ShaderManager::getInstance()->addShaderProgram("quad_texture", quad_texture);
+	gl4::Shader *passthrough = new gl4::Shader("../shaders/passthrough_VS.glsl", "../shaders/passthrough_FS.glsl");
+	gl4::ShaderManager::getInstance()->addShaderProgram("passthrough", passthrough);
 
 	oit1 = new oit_linked(MAX_FRAMEBUFFER_WIDTH, MAX_FRAMEBUFFER_HEIGHT, MAX_FRAMEBUFFER_SAMPLES);
 	oit2 = new oit_dynamic(MAX_FRAMEBUFFER_WIDTH, MAX_FRAMEBUFFER_HEIGHT, MAX_FRAMEBUFFER_SAMPLES);
@@ -180,7 +181,14 @@ void myRenderFunc(void)
 			oit3->render(&camera_transform[0][0], fbo_final.getTexture(0), render_scene);
 			break;
 		default:
-			oit1->render(&camera_transform[0][0], fbo_final.getTexture(0), render_scene);
+			fbo_final.bind();
+			gl4::ShaderManager::getInstance()->bindShader("passthrough");
+			glUniformMatrix4fv(4, 1, GL_FALSE, &camera_transform[0][0]);
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_2D, gl4::TextureManager::getInstance()->getTexture("checkerboard"));
+			glUniform1i(3, 0);
+			render_scene();
+			fbo_final.unbind();
 			break;
 	}
 	

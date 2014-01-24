@@ -9,22 +9,38 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 */
 #version 430
 
+layout (early_fragment_tests) in;
+
 layout(location = 0) uniform mat4 Projection;
 layout(location = 1) uniform mat4 ModelTransform;
-layout(location = 2) uniform vec3 CameraPosition;
-layout(location = 3) uniform sampler2D teximage;
-layout(location = 4) uniform sampler2D heightimage;
-layout(location = 5) uniform float TessLevel;
+layout(location = 2) uniform vec4 base_color;
+layout(location = 3) uniform sampler2D base_texture;
 
-layout(location = 0) in vec2 st;
-layout(location = 1) in vec3 stp;
+layout (location = 0) in vec2 st;
+layout (location = 1) in vec3 frag_position;
+layout (location = 2) in vec3 frag_normal;
 
+uniform vec3 light_position = vec3(40.0, 20.0, 100.0);
 
-layout(location = 0) out vec4 diffuse;
+layout(location = 0) out vec4 out_color;
 
 void main()
 {
 
-	diffuse = vec4(1,0,0,1);
+	vec4 frag_color = base_color;
+	if(base_color.a == 0.0) {
+		frag_color = texture(base_texture, st);
+	}
 
+	vec3 L = normalize(light_position - frag_position);
+    vec3 V = normalize(-frag_position);
+    vec3 N = normalize(frag_normal);
+    vec3 H = normalize(L + V);
+
+    float NdotL = dot(N, L);
+    float NdotH = dot(N, H);
+
+    frag_color = vec4(frag_color.rgb * abs(NdotL), frag_color.a);
+
+    out_color = frag_color;
 }
